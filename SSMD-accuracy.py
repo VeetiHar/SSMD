@@ -25,7 +25,7 @@ def calculate_iou(box1, box2):
     iou = intersection_area / union_area if union_area > 0 else 0
     return iou
 
-def calculate_accuracy(ground_truth_boxes, predicted_boxes, iou_threshold=0.9):
+def calculate_accuracy(ground_truth_boxes, predicted_boxes, iou_threshold=0.5):
     true_positives = 0
     false_positives = 0
     false_negatives = 0
@@ -45,7 +45,8 @@ def calculate_accuracy(ground_truth_boxes, predicted_boxes, iou_threshold=0.9):
             false_negatives += 1
 
     false_positives = len(predicted_boxes) - true_positives
-
+    if((true_positives + false_positives) == 0) or (true_positives + false_negatives == 0) or (len(ground_truth_boxes) == 0):
+        return -1, -1 , -1
     precision = true_positives / (true_positives + false_positives)
     recall = true_positives / (true_positives + false_negatives)
     accuracy = true_positives / len(ground_truth_boxes)
@@ -55,9 +56,9 @@ def calculate_accuracy(ground_truth_boxes, predicted_boxes, iou_threshold=0.9):
 
 
 
-output_size = 2000
+output_size = 2
 # Load your trained ResNet-18 model
-model = ssdlite320_mobilenet_v3_large(weights=None)
+model = ssdlite320_mobilenet_v3_large( num_classes=output_size)
 # Load the saved weights
 model.load_state_dict(torch.load('trained_model.pth'))
 # Set the model to evaluation mode
@@ -67,7 +68,7 @@ model.eval()
 input_image_path = 'WIDER_val/images/0--Parade/0_Parade_marchingband_1_353.jpg'
 image = Image.open(input_image_path).convert('RGB')
 transform = transforms.Compose([
-    transforms.Resize((320, 320)),
+    transforms.Resize((300, 300)),
     transforms.ToTensor(),
     # Add any other preprocessing steps used during training
 ])
@@ -76,16 +77,6 @@ input_tensor = transform(image).unsqueeze(0)  # Add batch dimension
 # Forward pass
 with torch.no_grad():
     outputs = model(input_tensor)
-
-# Hypothetical example: Assume model outputs bounding box coordinates [x, y, width, height]
-# Adjust this based on your actual output format
-pred_scores = outputs[0]['scores'].detach().cpu().numpy()
-bounding_box = outputs[0]['boxes'].detach().cpu().numpy()
-labels = outputs[0]['labels'].detach().cpu().numpy()
-boxes = bounding_box[pred_scores >= 0.4].astype(np.int32)
-# Post-process the output
-# You may need to convert model-specific output to a usable format for bounding boxes
-# For example, if the model outputs bounding box deltas, you might need to apply them to anchor boxes
 
 
 with open("wider_face_split\wider_face_val_bbx_gt.txt", 'r') as file:
@@ -105,8 +96,8 @@ with open("wider_face_split\wider_face_val_bbx_gt.txt", 'r') as file:
         input_tensor = transform(image).unsqueeze(0)
 
         width, height = image.size
-        scale_x = 320/width
-        scale_y = 320/height
+        scale_x = 300/width
+        scale_y = 300/height
         
         with torch.no_grad():
             outputs = model(input_tensor)
@@ -114,7 +105,7 @@ with open("wider_face_split\wider_face_val_bbx_gt.txt", 'r') as file:
         pred_scores = outputs[0]['scores'].detach().cpu().numpy()
         bounding_box = outputs[0]['boxes'].detach().cpu().numpy()
         labels = outputs[0]['labels'].detach().cpu().numpy()
-        bounding_boxes_result = bounding_box[pred_scores >= 0.4].astype(np.int32)
+        bounding_boxes_result = bounding_box[pred_scores >= 0.2].astype(np.int32)
 
 
 
@@ -124,7 +115,7 @@ with open("wider_face_split\wider_face_val_bbx_gt.txt", 'r') as file:
         boxes_info = [lines[i].strip() for i in range(idx, idx + num_bounding_boxes)]
         # x y w h
         bounding_boxes_target = []
-        for box_info in boxes_info:
+        for box_info, label in zip(boxes_info, labels):
             box_info = box_info.split(' ')
             x = 0
             y = 0
@@ -132,13 +123,13 @@ with open("wider_face_split\wider_face_val_bbx_gt.txt", 'r') as file:
                 x = 1
             if(float(box_info[3]) * float(scale_y) < 1):
                 y = 1
-            bounding_boxes = [int(float(box_info[0]) * float(scale_x)),int(float(box_info[1]) * float(scale_y)),int((float(box_info[0])+float(box_info[2])) * float(scale_x))+x,int((float(box_info[1])+float(box_info[3])) * float(scale_y))+y]
-            bounding_boxes_target.append(bounding_boxes)
+            if label == 1:
+                bounding_boxes = [int(float(box_info[0]) * float(scale_x)),int(float(box_info[1]) * float(scale_y)),int((float(box_info[0])+float(box_info[2])) * float(scale_x)),int((float(box_info[1])+float(box_info[3])) * float(scale_y))]
+                bounding_boxes_target.append(bounding_boxes)
         precision,recall, accuracy  = calculate_accuracy(bounding_boxes_target, bounding_boxes_result)
         idx += num_bounding_boxes
-        print('precision = ', precision)
-        print('recall = ', recall)
-        print('accuracy = ', accuracy)
+        if(precision == -1):
+            continue
         final_precision +=precision
         final_recall += recall
         final_accuracy += accuracy

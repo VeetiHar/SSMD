@@ -13,7 +13,7 @@ import torch.nn.functional as F
        
 #print(torch.cuda.get_device_name(cuda_id))
 
-output_size = 91
+output_size = 2
 pretrained = False
 
 # Set up the paths and parameters
@@ -22,7 +22,7 @@ txt_file = "wider_face_split\wider_face_train_bbx_gt.txt"
 
 # Set up transformations
 transform = transforms.Compose([
-    transforms.Resize((320, 320)),
+    transforms.Resize((300, 300)),
     transforms.ToTensor(),
 ])
 
@@ -30,21 +30,22 @@ transform = transforms.Compose([
 custom_dataset = CustomDataset(txt_file=txt_file, transform=transform)
 
 # Create a data loader
-batch_size = 6
+batch_size = 4
 train_loader = DataLoader(custom_dataset, batch_size=batch_size, shuffle=True)
 # Set up the model
-model = ssdlite320_mobilenet_v3_large(weights = None, num_classes=output_size)
+model = ssdlite320_mobilenet_v3_large(num_classes=output_size,positive_fraction=0.001)
 
 # Set up optimizer and loss function
-optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.03, momentum=0.9)
 
 # Training loop
-num_epochs = 20  # Adjust as needed
+num_epochs = 10  # Adjust as needed
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
 for epoch in range(num_epochs):
     model.train()
+    total_loss = 0.0
     for inputs, targets in train_loader:
         inputs = inputs.to(device)
         list_of_dicts = [
@@ -59,15 +60,14 @@ for epoch in range(num_epochs):
         # Forward pass
         # Extract predicted bounding boxes from the model output
         outputs = model(inputs, list_of_dicts_cuda)
-
         # Compute the loss
         loss = outputs['bbox_regression'] + outputs['classification']
-
+        total_loss += loss
         # Backward pass and optimization
         loss.backward()
         optimizer.step()
-
-    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item()}")
+    mean_loss = total_loss / len(train_loader)
+    print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {mean_loss}")
 
 # Save the trained model
 torch.save(model.state_dict(), 'trained_model.pth')
